@@ -1,32 +1,32 @@
-/*************************************************************************/
-/*  physics_body_3d.h                                                    */
-/*************************************************************************/
-/*                       This file is part of:                           */
-/*                           GODOT ENGINE                                */
-/*                      https://godotengine.org                          */
-/*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
-/*                                                                       */
-/* Permission is hereby granted, free of charge, to any person obtaining */
-/* a copy of this software and associated documentation files (the       */
-/* "Software"), to deal in the Software without restriction, including   */
-/* without limitation the rights to use, copy, modify, merge, publish,   */
-/* distribute, sublicense, and/or sell copies of the Software, and to    */
-/* permit persons to whom the Software is furnished to do so, subject to */
-/* the following conditions:                                             */
-/*                                                                       */
-/* The above copyright notice and this permission notice shall be        */
-/* included in all copies or substantial portions of the Software.       */
-/*                                                                       */
-/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,       */
-/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF    */
-/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.*/
-/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY  */
-/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,  */
-/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE     */
-/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
-/*************************************************************************/
+/**************************************************************************/
+/*  physics_body_3d.h                                                     */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #ifndef PHYSICS_BODY_3D_H
 #define PHYSICS_BODY_3D_H
@@ -50,11 +50,11 @@ protected:
 
 	uint16_t locked_axis = 0;
 
-	Ref<KinematicCollision3D> _move(const Vector3 &p_motion, bool p_test_only = false, real_t p_margin = 0.001);
+	Ref<KinematicCollision3D> _move(const Vector3 &p_motion, bool p_test_only = false, real_t p_margin = 0.001, bool p_recovery_as_collision = false, int p_max_collisions = 1);
 
 public:
-	bool move_and_collide(const Vector3 &p_motion, PhysicsServer3D::MotionResult &r_result, real_t p_margin, bool p_test_only = false, bool p_cancel_sliding = true, const Set<RID> &p_exclude = Set<RID>());
-	bool test_move(const Transform3D &p_from, const Vector3 &p_motion, const Ref<KinematicCollision3D> &r_collision = Ref<KinematicCollision3D>(), real_t p_margin = 0.001);
+	bool move_and_collide(const PhysicsServer3D::MotionParameters &p_parameters, PhysicsServer3D::MotionResult &r_result, bool p_test_only = false, bool p_cancel_sliding = true);
+	bool test_move(const Transform3D &p_from, const Vector3 &p_motion, const Ref<KinematicCollision3D> &r_collision = Ref<KinematicCollision3D>(), real_t p_margin = 0.001, bool p_recovery_as_collision = false, int p_max_collisions = 1);
 
 	void set_axis_lock(PhysicsServer3D::BodyAxis p_axis, bool p_lock);
 	bool get_axis_lock(PhysicsServer3D::BodyAxis p_axis) const;
@@ -73,23 +73,13 @@ public:
 class StaticBody3D : public PhysicsBody3D {
 	GDCLASS(StaticBody3D, PhysicsBody3D);
 
+private:
 	Vector3 constant_linear_velocity;
 	Vector3 constant_angular_velocity;
 
-	Vector3 linear_velocity;
-	Vector3 angular_velocity;
-
 	Ref<PhysicsMaterial> physics_material_override;
 
-	bool kinematic_motion = false;
-	bool sync_to_physics = false;
-
-	Transform3D last_valid_transform;
-
-	void _direct_state_changed(Object *p_state);
-
 protected:
-	void _notification(int p_what);
 	static void _bind_methods();
 
 public:
@@ -102,20 +92,38 @@ public:
 	Vector3 get_constant_linear_velocity() const;
 	Vector3 get_constant_angular_velocity() const;
 
-	virtual Vector3 get_linear_velocity() const override;
-	virtual Vector3 get_angular_velocity() const override;
-
-	virtual TypedArray<String> get_configuration_warnings() const override;
-
-	StaticBody3D();
+	StaticBody3D(PhysicsServer3D::BodyMode p_mode = PhysicsServer3D::BODY_MODE_STATIC);
 
 private:
 	void _reload_physics_characteristics();
+};
 
+class AnimatableBody3D : public StaticBody3D {
+	GDCLASS(AnimatableBody3D, StaticBody3D);
+
+private:
+	Vector3 linear_velocity;
+	Vector3 angular_velocity;
+
+	bool sync_to_physics = true;
+
+	Transform3D last_valid_transform;
+
+	static void _body_state_changed_callback(void *p_instance, PhysicsDirectBodyState3D *p_state);
+	void _body_state_changed(PhysicsDirectBodyState3D *p_state);
+
+protected:
+	void _notification(int p_what);
+	static void _bind_methods();
+
+public:
+	virtual Vector3 get_linear_velocity() const override;
+	virtual Vector3 get_angular_velocity() const override;
+
+	AnimatableBody3D();
+
+private:
 	void _update_kinematic_motion();
-
-	void set_kinematic_motion_enabled(bool p_enabled);
-	bool is_kinematic_motion_enabled() const;
 
 	void set_sync_to_physics(bool p_enable);
 	bool is_sync_to_physics_enabled() const;
@@ -125,29 +133,44 @@ class RigidBody3D : public PhysicsBody3D {
 	GDCLASS(RigidBody3D, PhysicsBody3D);
 
 public:
-	enum Mode {
-		MODE_DYNAMIC,
-		MODE_STATIC,
-		MODE_DYNAMIC_LOCKED,
-		MODE_KINEMATIC,
+	enum FreezeMode {
+		FREEZE_MODE_STATIC,
+		FREEZE_MODE_KINEMATIC,
 	};
 
-	GDVIRTUAL1(_integrate_forces, PhysicsDirectBodyState3D *)
+	enum CenterOfMassMode {
+		CENTER_OF_MASS_MODE_AUTO,
+		CENTER_OF_MASS_MODE_CUSTOM,
+	};
 
-protected:
+	enum DampMode {
+		DAMP_MODE_COMBINE,
+		DAMP_MODE_REPLACE,
+	};
+
+private:
 	bool can_sleep = true;
-	PhysicsDirectBodyState3D *state = nullptr;
-	Mode mode = MODE_DYNAMIC;
+	bool lock_rotation = false;
+	bool freeze = false;
+	FreezeMode freeze_mode = FREEZE_MODE_STATIC;
 
 	real_t mass = 1.0;
+	Vector3 inertia;
+	CenterOfMassMode center_of_mass_mode = CENTER_OF_MASS_MODE_AUTO;
+	Vector3 center_of_mass;
+
 	Ref<PhysicsMaterial> physics_material_override;
 
 	Vector3 linear_velocity;
 	Vector3 angular_velocity;
 	Basis inverse_inertia_tensor;
 	real_t gravity_scale = 1.0;
-	real_t linear_damp = -1.0;
-	real_t angular_damp = -1.0;
+
+	DampMode linear_damp_mode = DAMP_MODE_COMBINE;
+	DampMode angular_damp_mode = DAMP_MODE_COMBINE;
+
+	real_t linear_damp = 0.0;
+	real_t angular_damp = 0.0;
 
 	bool sleeping = false;
 	bool ccd = false;
@@ -189,7 +212,7 @@ protected:
 
 	struct ContactMonitor {
 		bool locked = false;
-		Map<ObjectID, BodyState> body_map;
+		HashMap<ObjectID, BodyState> body_map;
 	};
 
 	ContactMonitor *contact_monitor = nullptr;
@@ -197,19 +220,43 @@ protected:
 	void _body_exit_tree(ObjectID p_id);
 
 	void _body_inout(int p_status, const RID &p_body, ObjectID p_instance, int p_body_shape, int p_local_shape);
-	virtual void _direct_state_changed(Object *p_state);
+	static void _body_state_changed_callback(void *p_instance, PhysicsDirectBodyState3D *p_state);
 
+protected:
 	void _notification(int p_what);
 	static void _bind_methods();
 
+	void _validate_property(PropertyInfo &p_property) const;
+
+	GDVIRTUAL1(_integrate_forces, PhysicsDirectBodyState3D *)
+
+	virtual void _body_state_changed(PhysicsDirectBodyState3D *p_state);
+
+	void _apply_body_mode();
+
 public:
-	void set_mode(Mode p_mode);
-	Mode get_mode() const;
+	void set_lock_rotation_enabled(bool p_lock_rotation);
+	bool is_lock_rotation_enabled() const;
+
+	void set_freeze_enabled(bool p_freeze);
+	bool is_freeze_enabled() const;
+
+	void set_freeze_mode(FreezeMode p_freeze_mode);
+	FreezeMode get_freeze_mode() const;
 
 	void set_mass(real_t p_mass);
 	real_t get_mass() const;
 
 	virtual real_t get_inverse_mass() const override { return 1.0 / mass; }
+
+	void set_inertia(const Vector3 &p_inertia);
+	const Vector3 &get_inertia() const;
+
+	void set_center_of_mass_mode(CenterOfMassMode p_mode);
+	CenterOfMassMode get_center_of_mass_mode() const;
+
+	void set_center_of_mass(const Vector3 &p_center_of_mass);
+	const Vector3 &get_center_of_mass() const;
 
 	void set_physics_material_override(const Ref<PhysicsMaterial> &p_physics_material_override);
 	Ref<PhysicsMaterial> get_physics_material_override() const;
@@ -226,6 +273,12 @@ public:
 
 	void set_gravity_scale(real_t p_gravity_scale);
 	real_t get_gravity_scale() const;
+
+	void set_linear_damp_mode(DampMode p_mode);
+	DampMode get_linear_damp_mode() const;
+
+	void set_angular_damp_mode(DampMode p_mode);
+	DampMode get_angular_damp_mode() const;
 
 	void set_linear_damp(real_t p_linear_damp);
 	real_t get_linear_damp() const;
@@ -247,21 +300,32 @@ public:
 
 	void set_max_contacts_reported(int p_amount);
 	int get_max_contacts_reported() const;
+	int get_contact_count() const;
 
 	void set_use_continuous_collision_detection(bool p_enable);
 	bool is_using_continuous_collision_detection() const;
 
-	Array get_colliding_bodies() const;
-
-	void add_central_force(const Vector3 &p_force);
-	void add_force(const Vector3 &p_force, const Vector3 &p_position = Vector3());
-	void add_torque(const Vector3 &p_torque);
+	TypedArray<Node3D> get_colliding_bodies() const;
 
 	void apply_central_impulse(const Vector3 &p_impulse);
 	void apply_impulse(const Vector3 &p_impulse, const Vector3 &p_position = Vector3());
 	void apply_torque_impulse(const Vector3 &p_impulse);
 
-	virtual TypedArray<String> get_configuration_warnings() const override;
+	void apply_central_force(const Vector3 &p_force);
+	void apply_force(const Vector3 &p_force, const Vector3 &p_position = Vector3());
+	void apply_torque(const Vector3 &p_torque);
+
+	void add_constant_central_force(const Vector3 &p_force);
+	void add_constant_force(const Vector3 &p_force, const Vector3 &p_position = Vector3());
+	void add_constant_torque(const Vector3 &p_torque);
+
+	void set_constant_force(const Vector3 &p_force);
+	Vector3 get_constant_force() const;
+
+	void set_constant_torque(const Vector3 &p_torque);
+	Vector3 get_constant_torque() const;
+
+	virtual PackedStringArray get_configuration_warnings() const override;
 
 	RigidBody3D();
 	~RigidBody3D();
@@ -270,65 +334,30 @@ private:
 	void _reload_physics_characteristics();
 };
 
-VARIANT_ENUM_CAST(RigidBody3D::Mode);
+VARIANT_ENUM_CAST(RigidBody3D::FreezeMode);
+VARIANT_ENUM_CAST(RigidBody3D::CenterOfMassMode);
+VARIANT_ENUM_CAST(RigidBody3D::DampMode);
 
 class KinematicCollision3D;
 
 class CharacterBody3D : public PhysicsBody3D {
 	GDCLASS(CharacterBody3D, PhysicsBody3D);
 
-private:
-	real_t margin = 0.001;
-
-	bool floor_stop_on_slope = false;
-	int max_slides = 4;
-	real_t floor_max_angle = Math::deg2rad((real_t)45.0);
-	Vector3 snap;
-	Vector3 up_direction = Vector3(0.0, 1.0, 0.0);
-
-	Vector3 linear_velocity;
-
-	Vector3 floor_normal;
-	Vector3 floor_velocity;
-	RID on_floor_body;
-	bool on_floor = false;
-	bool on_ceiling = false;
-	bool on_wall = false;
-	Vector<PhysicsServer3D::MotionResult> motion_results;
-	Vector<Ref<KinematicCollision3D>> slide_colliders;
-
-	Ref<KinematicCollision3D> _get_slide_collision(int p_bounce);
-	Ref<KinematicCollision3D> _get_last_slide_collision();
-
-	void _set_collision_direction(const PhysicsServer3D::MotionResult &p_result);
-
-	void set_safe_margin(real_t p_margin);
-	real_t get_safe_margin() const;
-
-	bool is_floor_stop_on_slope_enabled() const;
-	void set_floor_stop_on_slope_enabled(bool p_enabled);
-
-	int get_max_slides() const;
-	void set_max_slides(int p_max_slides);
-
-	real_t get_floor_max_angle() const;
-	void set_floor_max_angle(real_t p_radians);
-
-	const Vector3 &get_snap() const;
-	void set_snap(const Vector3 &p_snap);
-
-	const Vector3 &get_up_direction() const;
-	void set_up_direction(const Vector3 &p_up_direction);
-
-protected:
-	void _notification(int p_what);
-	static void _bind_methods();
-
 public:
+	enum MotionMode {
+		MOTION_MODE_GROUNDED,
+		MOTION_MODE_FLOATING,
+	};
+	enum PlatformOnLeave {
+		PLATFORM_ON_LEAVE_ADD_VELOCITY,
+		PLATFORM_ON_LEAVE_ADD_UPWARD_VELOCITY,
+		PLATFORM_ON_LEAVE_DO_NOTHING,
+	};
 	bool move_and_slide();
+	void apply_floor_snap();
 
-	virtual Vector3 get_linear_velocity() const override;
-	void set_linear_velocity(const Vector3 &p_velocity);
+	const Vector3 &get_velocity() const;
+	void set_velocity(const Vector3 &p_velocity);
 
 	bool is_on_floor() const;
 	bool is_on_floor_only() const;
@@ -336,16 +365,133 @@ public:
 	bool is_on_wall_only() const;
 	bool is_on_ceiling() const;
 	bool is_on_ceiling_only() const;
-	Vector3 get_floor_normal() const;
+	const Vector3 &get_last_motion() const;
+	Vector3 get_position_delta() const;
+	const Vector3 &get_floor_normal() const;
+	const Vector3 &get_wall_normal() const;
+	const Vector3 &get_real_velocity() const;
 	real_t get_floor_angle(const Vector3 &p_up_direction = Vector3(0.0, 1.0, 0.0)) const;
-	Vector3 get_platform_velocity() const;
+	const Vector3 &get_platform_velocity() const;
+	const Vector3 &get_platform_angular_velocity() const;
+
+	virtual Vector3 get_linear_velocity() const override;
 
 	int get_slide_collision_count() const;
 	PhysicsServer3D::MotionResult get_slide_collision(int p_bounce) const;
 
 	CharacterBody3D();
 	~CharacterBody3D();
+
+private:
+	real_t margin = 0.001;
+	MotionMode motion_mode = MOTION_MODE_GROUNDED;
+	PlatformOnLeave platform_on_leave = PLATFORM_ON_LEAVE_ADD_VELOCITY;
+	union CollisionState {
+		uint32_t state = 0;
+		struct {
+			bool floor;
+			bool wall;
+			bool ceiling;
+		};
+
+		CollisionState() {
+		}
+
+		CollisionState(bool p_floor, bool p_wall, bool p_ceiling) {
+			floor = p_floor;
+			wall = p_wall;
+			ceiling = p_ceiling;
+		}
+	};
+
+	CollisionState collision_state;
+	bool floor_constant_speed = false;
+	bool floor_stop_on_slope = true;
+	bool floor_block_on_wall = true;
+	bool slide_on_ceiling = true;
+	int max_slides = 6;
+	int platform_layer = 0;
+	RID platform_rid;
+	ObjectID platform_object_id;
+	uint32_t platform_floor_layers = UINT32_MAX;
+	uint32_t platform_wall_layers = 0;
+	real_t floor_snap_length = 0.1;
+	real_t floor_max_angle = Math::deg_to_rad((real_t)45.0);
+	real_t wall_min_slide_angle = Math::deg_to_rad((real_t)15.0);
+	Vector3 up_direction = Vector3(0.0, 1.0, 0.0);
+	Vector3 velocity;
+	Vector3 floor_normal;
+	Vector3 wall_normal;
+	Vector3 ceiling_normal;
+	Vector3 last_motion;
+	Vector3 platform_velocity;
+	Vector3 platform_angular_velocity;
+	Vector3 platform_ceiling_velocity;
+	Vector3 previous_position;
+	Vector3 real_velocity;
+
+	Vector<PhysicsServer3D::MotionResult> motion_results;
+	Vector<Ref<KinematicCollision3D>> slide_colliders;
+
+	void set_safe_margin(real_t p_margin);
+	real_t get_safe_margin() const;
+
+	bool is_floor_stop_on_slope_enabled() const;
+	void set_floor_stop_on_slope_enabled(bool p_enabled);
+
+	bool is_floor_constant_speed_enabled() const;
+	void set_floor_constant_speed_enabled(bool p_enabled);
+
+	bool is_floor_block_on_wall_enabled() const;
+	void set_floor_block_on_wall_enabled(bool p_enabled);
+
+	bool is_slide_on_ceiling_enabled() const;
+	void set_slide_on_ceiling_enabled(bool p_enabled);
+
+	int get_max_slides() const;
+	void set_max_slides(int p_max_slides);
+
+	real_t get_floor_max_angle() const;
+	void set_floor_max_angle(real_t p_radians);
+
+	real_t get_floor_snap_length();
+	void set_floor_snap_length(real_t p_floor_snap_length);
+
+	real_t get_wall_min_slide_angle() const;
+	void set_wall_min_slide_angle(real_t p_radians);
+
+	uint32_t get_platform_floor_layers() const;
+	void set_platform_floor_layers(const uint32_t p_exclude_layer);
+
+	uint32_t get_platform_wall_layers() const;
+	void set_platform_wall_layers(const uint32_t p_exclude_layer);
+
+	void set_motion_mode(MotionMode p_mode);
+	MotionMode get_motion_mode() const;
+
+	void set_platform_on_leave(PlatformOnLeave p_on_leave_velocity);
+	PlatformOnLeave get_platform_on_leave() const;
+
+	void _move_and_slide_floating(double p_delta);
+	void _move_and_slide_grounded(double p_delta, bool p_was_on_floor);
+
+	Ref<KinematicCollision3D> _get_slide_collision(int p_bounce);
+	Ref<KinematicCollision3D> _get_last_slide_collision();
+	const Vector3 &get_up_direction() const;
+	bool _on_floor_if_snapped(bool p_was_on_floor, bool p_vel_dir_facing_up);
+	void set_up_direction(const Vector3 &p_up_direction);
+	void _set_collision_direction(const PhysicsServer3D::MotionResult &p_result, CollisionState &r_state, CollisionState p_apply_state = CollisionState(true, true, true));
+	void _set_platform_data(const PhysicsServer3D::MotionCollision &p_collision);
+	void _snap_on_floor(bool p_was_on_floor, bool p_vel_dir_facing_up);
+
+protected:
+	void _notification(int p_what);
+	static void _bind_methods();
+	void _validate_property(PropertyInfo &p_property) const;
 };
+
+VARIANT_ENUM_CAST(CharacterBody3D::MotionMode);
+VARIANT_ENUM_CAST(CharacterBody3D::PlatformOnLeave);
 
 class KinematicCollision3D : public RefCounted {
 	GDCLASS(KinematicCollision3D, RefCounted);
@@ -359,25 +505,31 @@ protected:
 	static void _bind_methods();
 
 public:
-	Vector3 get_position() const;
-	Vector3 get_normal() const;
 	Vector3 get_travel() const;
 	Vector3 get_remainder() const;
-	real_t get_angle(const Vector3 &p_up_direction = Vector3(0.0, 1.0, 0.0)) const;
-	Object *get_local_shape() const;
-	Object *get_collider() const;
-	ObjectID get_collider_id() const;
-	RID get_collider_rid() const;
-	Object *get_collider_shape() const;
-	int get_collider_shape_index() const;
-	Vector3 get_collider_velocity() const;
-	Variant get_collider_metadata() const;
+	int get_collision_count() const;
+	real_t get_depth() const;
+	Vector3 get_position(int p_collision_index = 0) const;
+	Vector3 get_normal(int p_collision_index = 0) const;
+	real_t get_angle(int p_collision_index = 0, const Vector3 &p_up_direction = Vector3(0.0, 1.0, 0.0)) const;
+	Object *get_local_shape(int p_collision_index = 0) const;
+	Object *get_collider(int p_collision_index = 0) const;
+	ObjectID get_collider_id(int p_collision_index = 0) const;
+	RID get_collider_rid(int p_collision_index = 0) const;
+	Object *get_collider_shape(int p_collision_index = 0) const;
+	int get_collider_shape_index(int p_collision_index = 0) const;
+	Vector3 get_collider_velocity(int p_collision_index = 0) const;
 };
 
 class PhysicalBone3D : public PhysicsBody3D {
 	GDCLASS(PhysicalBone3D, PhysicsBody3D);
 
 public:
+	enum DampMode {
+		DAMP_MODE_COMBINE,
+		DAMP_MODE_REPLACE,
+	};
+
 	enum JointType {
 		JOINT_TYPE_NONE,
 		JOINT_TYPE_PIN,
@@ -515,17 +667,27 @@ private:
 	real_t bounce = 0.0;
 	real_t mass = 1.0;
 	real_t friction = 1.0;
+	Vector3 linear_velocity;
+	Vector3 angular_velocity;
 	real_t gravity_scale = 1.0;
-	real_t linear_damp = -1.0;
-	real_t angular_damp = -1.0;
 	bool can_sleep = true;
+
+	bool custom_integrator = false;
+
+	DampMode linear_damp_mode = DAMP_MODE_COMBINE;
+	DampMode angular_damp_mode = DAMP_MODE_COMBINE;
+
+	real_t linear_damp = 0.0;
+	real_t angular_damp = 0.0;
 
 protected:
 	bool _set(const StringName &p_name, const Variant &p_value);
 	bool _get(const StringName &p_name, Variant &r_ret) const;
 	void _get_property_list(List<PropertyInfo> *p_list) const;
 	void _notification(int p_what);
-	void _direct_state_changed(Object *p_state);
+	GDVIRTUAL1(_integrate_forces, PhysicsDirectBodyState3D *)
+	static void _body_state_changed_callback(void *p_instance, PhysicsDirectBodyState3D *p_state);
+	void _body_state_changed(PhysicsDirectBodyState3D *p_state);
 
 	static void _bind_methods();
 
@@ -538,10 +700,18 @@ private:
 
 public:
 	void _on_bone_parent_changed();
-	void _set_gizmo_move_joint(bool p_move_joint);
 
-public:
+	void set_linear_velocity(const Vector3 &p_velocity);
+	Vector3 get_linear_velocity() const override;
+
+	void set_angular_velocity(const Vector3 &p_velocity);
+	Vector3 get_angular_velocity() const override;
+
+	void set_use_custom_integrator(bool p_enable);
+	bool is_using_custom_integrator();
+
 #ifdef TOOLS_ENABLED
+	void _set_gizmo_move_joint(bool p_move_joint);
 	virtual Transform3D get_global_gizmo_transform() const override;
 	virtual Transform3D get_local_gizmo_transform() const override;
 #endif
@@ -549,7 +719,9 @@ public:
 	const JointData *get_joint_data() const;
 	Skeleton3D *find_skeleton_parent();
 
-	int get_bone_id() const { return bone_id; }
+	int get_bone_id() const {
+		return bone_id;
+	}
 
 	void set_joint_type(JointType p_joint_type);
 	JointType get_joint_type() const;
@@ -582,6 +754,12 @@ public:
 	void set_gravity_scale(real_t p_gravity_scale);
 	real_t get_gravity_scale() const;
 
+	void set_linear_damp_mode(DampMode p_mode);
+	DampMode get_linear_damp_mode() const;
+
+	void set_angular_damp_mode(DampMode p_mode);
+	DampMode get_angular_damp_mode() const;
+
 	void set_linear_damp(real_t p_linear_damp);
 	real_t get_linear_damp() const;
 
@@ -609,5 +787,6 @@ private:
 };
 
 VARIANT_ENUM_CAST(PhysicalBone3D::JointType);
+VARIANT_ENUM_CAST(PhysicalBone3D::DampMode);
 
-#endif // PHYSICS_BODY__H
+#endif // PHYSICS_BODY_3D_H

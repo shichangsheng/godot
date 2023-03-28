@@ -1,32 +1,32 @@
-/*************************************************************************/
-/*  skeleton_modification_2d.cpp                                         */
-/*************************************************************************/
-/*                       This file is part of:                           */
-/*                           GODOT ENGINE                                */
-/*                      https://godotengine.org                          */
-/*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
-/*                                                                       */
-/* Permission is hereby granted, free of charge, to any person obtaining */
-/* a copy of this software and associated documentation files (the       */
-/* "Software"), to deal in the Software without restriction, including   */
-/* without limitation the rights to use, copy, modify, merge, publish,   */
-/* distribute, sublicense, and/or sell copies of the Software, and to    */
-/* permit persons to whom the Software is furnished to do so, subject to */
-/* the following conditions:                                             */
-/*                                                                       */
-/* The above copyright notice and this permission notice shall be        */
-/* included in all copies or substantial portions of the Software.       */
-/*                                                                       */
-/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,       */
-/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF    */
-/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.*/
-/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY  */
-/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,  */
-/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE     */
-/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
-/*************************************************************************/
+/**************************************************************************/
+/*  skeleton_modification_2d.cpp                                          */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #include "skeleton_modification_2d.h"
 #include "scene/2d/skeleton_2d.h"
@@ -96,37 +96,25 @@ float SkeletonModification2D::clamp_angle(float p_angle, float p_min_bound, floa
 		p_max_bound = Math_TAU + p_max_bound;
 	}
 	if (p_min_bound > p_max_bound) {
-		float tmp = p_min_bound;
-		p_min_bound = p_max_bound;
-		p_max_bound = tmp;
+		SWAP(p_min_bound, p_max_bound);
 	}
+
+	bool is_beyond_bounds = (p_angle < p_min_bound || p_angle > p_max_bound);
+	bool is_within_bounds = (p_angle > p_min_bound && p_angle < p_max_bound);
 
 	// Note: May not be the most optimal way to clamp, but it always constraints to the nearest angle.
-	if (p_invert == false) {
-		if (p_angle < p_min_bound || p_angle > p_max_bound) {
-			Vector2 min_bound_vec = Vector2(Math::cos(p_min_bound), Math::sin(p_min_bound));
-			Vector2 max_bound_vec = Vector2(Math::cos(p_max_bound), Math::sin(p_max_bound));
-			Vector2 angle_vec = Vector2(Math::cos(p_angle), Math::sin(p_angle));
+	if ((!p_invert && is_beyond_bounds) || (p_invert && is_within_bounds)) {
+		Vector2 min_bound_vec = Vector2(Math::cos(p_min_bound), Math::sin(p_min_bound));
+		Vector2 max_bound_vec = Vector2(Math::cos(p_max_bound), Math::sin(p_max_bound));
+		Vector2 angle_vec = Vector2(Math::cos(p_angle), Math::sin(p_angle));
 
-			if (angle_vec.distance_squared_to(min_bound_vec) <= angle_vec.distance_squared_to(max_bound_vec)) {
-				p_angle = p_min_bound;
-			} else {
-				p_angle = p_max_bound;
-			}
-		}
-	} else {
-		if (p_angle > p_min_bound && p_angle < p_max_bound) {
-			Vector2 min_bound_vec = Vector2(Math::cos(p_min_bound), Math::sin(p_min_bound));
-			Vector2 max_bound_vec = Vector2(Math::cos(p_max_bound), Math::sin(p_max_bound));
-			Vector2 angle_vec = Vector2(Math::cos(p_angle), Math::sin(p_angle));
-
-			if (angle_vec.distance_squared_to(min_bound_vec) <= angle_vec.distance_squared_to(max_bound_vec)) {
-				p_angle = p_min_bound;
-			} else {
-				p_angle = p_max_bound;
-			}
+		if (angle_vec.distance_squared_to(min_bound_vec) <= angle_vec.distance_squared_to(max_bound_vec)) {
+			p_angle = p_min_bound;
+		} else {
+			p_angle = p_max_bound;
 		}
 	}
+
 	return p_angle;
 }
 
@@ -139,7 +127,7 @@ void SkeletonModification2D::editor_draw_angle_constraints(Bone2D *p_operation_b
 	Color bone_ik_color = Color(1.0, 0.65, 0.0, 0.4);
 #ifdef TOOLS_ENABLED
 	if (Engine::get_singleton()->is_editor_hint()) {
-		bone_ik_color = EditorSettings::get_singleton()->get("editors/2d/bone_ik_color");
+		bone_ik_color = EDITOR_GET("editors/2d/bone_ik_color");
 	}
 #endif // TOOLS_ENABLED
 
@@ -152,9 +140,7 @@ void SkeletonModification2D::editor_draw_angle_constraints(Bone2D *p_operation_b
 		arc_angle_max = (Math_PI * 2) + arc_angle_max;
 	}
 	if (arc_angle_min > arc_angle_max) {
-		float tmp = arc_angle_min;
-		arc_angle_min = arc_angle_max;
-		arc_angle_max = tmp;
+		SWAP(arc_angle_min, arc_angle_max);
 	}
 	arc_angle_min += p_operation_bone->get_bone_angle();
 	arc_angle_max += p_operation_bone->get_bone_angle();
@@ -244,7 +230,7 @@ void SkeletonModification2D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_editor_draw_gizmo"), &SkeletonModification2D::get_editor_draw_gizmo);
 
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "enabled"), "set_enabled", "get_enabled");
-	ADD_PROPERTY(PropertyInfo(Variant::INT, "execution_mode", PROPERTY_HINT_ENUM, "process, physics_process"), "set_execution_mode", "get_execution_mode");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "execution_mode", PROPERTY_HINT_ENUM, "process,physics_process"), "set_execution_mode", "get_execution_mode");
 }
 
 SkeletonModification2D::SkeletonModification2D() {

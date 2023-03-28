@@ -1,32 +1,32 @@
-/*************************************************************************/
-/*  debug_adapter_protocol.h                                             */
-/*************************************************************************/
-/*                       This file is part of:                           */
-/*                           GODOT ENGINE                                */
-/*                      https://godotengine.org                          */
-/*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
-/*                                                                       */
-/* Permission is hereby granted, free of charge, to any person obtaining */
-/* a copy of this software and associated documentation files (the       */
-/* "Software"), to deal in the Software without restriction, including   */
-/* without limitation the rights to use, copy, modify, merge, publish,   */
-/* distribute, sublicense, and/or sell copies of the Software, and to    */
-/* permit persons to whom the Software is furnished to do so, subject to */
-/* the following conditions:                                             */
-/*                                                                       */
-/* The above copyright notice and this permission notice shall be        */
-/* included in all copies or substantial portions of the Software.       */
-/*                                                                       */
-/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,       */
-/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF    */
-/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.*/
-/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY  */
-/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,  */
-/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE     */
-/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
-/*************************************************************************/
+/**************************************************************************/
+/*  debug_adapter_protocol.h                                              */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #ifndef DEBUG_ADAPTER_PROTOCOL_H
 #define DEBUG_ADAPTER_PROTOCOL_H
@@ -52,12 +52,17 @@ struct DAPeer : RefCounted {
 	int content_length = 0;
 	List<Dictionary> res_queue;
 	int seq = 0;
+	uint64_t timestamp = 0;
 
 	// Client specific info
 	bool linesStartAt1 = false;
 	bool columnsStartAt1 = false;
 	bool supportsVariableType = false;
 	bool supportsInvalidatedEvent = false;
+	bool supportsCustomData = false;
+
+	// Internal client info
+	bool attached = false;
 
 	Error handle_data();
 	Error send_data();
@@ -71,7 +76,7 @@ class DebugAdapterProtocol : public Object {
 
 private:
 	static DebugAdapterProtocol *singleton;
-	DebugAdapterParser *parser;
+	DebugAdapterParser *parser = nullptr;
 
 	List<Ref<DAPeer>> clients;
 	Ref<TCPServer> server;
@@ -82,13 +87,17 @@ private:
 	void on_debug_stopped();
 	void on_debug_output(const String &p_message);
 	void on_debug_breaked(const bool &p_reallydid, const bool &p_can_debug, const String &p_reason, const bool &p_has_stackdump);
+	void on_debug_breakpoint_toggled(const String &p_path, const int &p_line, const bool &p_enabled);
 	void on_debug_stack_dump(const Array &p_stack_dump);
 	void on_debug_stack_frame_vars(const int &p_size);
 	void on_debug_stack_frame_var(const Array &p_data);
+	void on_debug_data(const String &p_msg, const Array &p_data);
 
 	void reset_current_info();
 	void reset_ids();
 	void reset_stack_info();
+
+	int parse_variant(const Variant &p_var);
 
 	bool _initialized = false;
 	bool _processing_breakpoint = false;
@@ -96,18 +105,22 @@ private:
 	bool _processing_stackdump = false;
 	int _remaining_vars = 0;
 	int _current_frame = 0;
+	uint64_t _request_timeout = 1000;
+	bool _sync_breakpoints = false;
 
 	String _current_request;
 	Ref<DAPeer> _current_peer;
 
-	int breakpoint_id;
-	int stackframe_id;
-	int variable_id;
+	int breakpoint_id = 0;
+	int stackframe_id = 0;
+	int variable_id = 0;
 	List<DAP::Breakpoint> breakpoint_list;
-	Map<DAP::StackFrame, List<int>> stackframe_list;
-	Map<int, Array> variable_list;
+	HashMap<DAP::StackFrame, List<int>, DAP::StackFrame> stackframe_list;
+	HashMap<int, Array> variable_list;
 
 public:
+	friend class DebugAdapterServer;
+
 	_FORCE_INLINE_ static DebugAdapterProtocol *get_singleton() { return singleton; }
 	_FORCE_INLINE_ bool is_active() const { return _initialized && clients.size() > 0; }
 
@@ -126,8 +139,10 @@ public:
 	void notify_stopped_step();
 	void notify_continued();
 	void notify_output(const String &p_message);
+	void notify_custom_data(const String &p_msg, const Array &p_data);
+	void notify_breakpoint(const DAP::Breakpoint &p_breakpoint, const bool &p_enabled);
 
-	Array update_breakpoints(const String &p_path, const Array &p_breakpoints);
+	Array update_breakpoints(const String &p_path, const Array &p_lines);
 
 	void poll();
 	Error start(int p_port, const IPAddress &p_bind_ip);
@@ -137,4 +152,4 @@ public:
 	~DebugAdapterProtocol();
 };
 
-#endif
+#endif // DEBUG_ADAPTER_PROTOCOL_H

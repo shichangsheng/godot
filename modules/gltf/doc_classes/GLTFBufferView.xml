@@ -1,13 +1,11 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<class name="GLTFBufferView" inherits="Resource" version="4.0">
+<class name="GLTFBufferView" inherits="Resource" version="4.1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
 	<brief_description>
 	</brief_description>
 	<description>
 	</description>
 	<tutorials>
 	</tutorials>
-	<methods>
-	</methods>
 	<members>
 		<member name="buffer" type="int" setter="set_buffer" getter="get_buffer" default="-1">
 		</member>
@@ -20,6 +18,4 @@
 		<member name="indices" type="bool" setter="set_indices" getter="get_indices" default="false">
 		</member>
 	</members>
-	<constants>
-	</constants>
 </class>

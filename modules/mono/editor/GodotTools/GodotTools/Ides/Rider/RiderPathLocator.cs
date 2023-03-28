@@ -1,9 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
+using System.Runtime.Versioning;
 using Godot;
-using JetBrains.Annotations;
 using Microsoft.Win32;
 using Newtonsoft.Json;
 using Directory = System.IO.Directory;
@@ -11,6 +12,7 @@ using Environment = System.Environment;
 using File = System.IO.File;
 using Path = System.IO.Path;
 using OS = GodotTools.Utils.OS;
+
 // ReSharper disable UnassignedField.Local
 // ReSharper disable InconsistentNaming
 // ReSharper disable UnassignedField.Global
@@ -40,7 +42,7 @@ namespace GodotTools.Ides.Rider
                 {
                     return CollectAllRiderPathsLinux();
                 }
-                throw new Exception("Unexpected OS.");
+                throw new InvalidOperationException("Unexpected OS.");
             }
             catch (Exception e)
             {
@@ -53,10 +55,10 @@ namespace GodotTools.Ides.Rider
         private static RiderInfo[] CollectAllRiderPathsLinux()
         {
             var installInfos = new List<RiderInfo>();
-            var home = Environment.GetEnvironmentVariable("HOME");
+            string home = Environment.GetEnvironmentVariable("HOME");
             if (!string.IsNullOrEmpty(home))
             {
-                var toolboxRiderRootPath = GetToolboxBaseDir();
+                string toolboxRiderRootPath = GetToolboxBaseDir();
                 installInfos.AddRange(CollectPathsFromToolbox(toolboxRiderRootPath, "bin", "rider.sh", false)
                   .Select(a => new RiderInfo(a, true)).ToList());
 
@@ -65,12 +67,12 @@ namespace GodotTools.Ides.Rider
 
                 if (shortcut.Exists)
                 {
-                    var lines = File.ReadAllLines(shortcut.FullName);
-                    foreach (var line in lines)
+                    string[] lines = File.ReadAllLines(shortcut.FullName);
+                    foreach (string line in lines)
                     {
                         if (!line.StartsWith("Exec=\""))
                             continue;
-                        var path = line.Split('"').Where((item, index) => index == 1).SingleOrDefault();
+                        string path = line.Split('"').Where((item, index) => index == 1).SingleOrDefault();
                         if (string.IsNullOrEmpty(path))
                             continue;
 
@@ -82,7 +84,7 @@ namespace GodotTools.Ides.Rider
             }
 
             // snap install
-            var snapInstallPath = "/snap/rider/current/bin/rider.sh";
+            string snapInstallPath = "/snap/rider/current/bin/rider.sh";
             if (new FileInfo(snapInstallPath).Exists)
                 installInfos.Add(new RiderInfo(snapInstallPath, false));
 
@@ -98,20 +100,21 @@ namespace GodotTools.Ides.Rider
             if (folder.Exists)
             {
                 installInfos.AddRange(folder.GetDirectories("*Rider*.app")
-                  .Select(a => new RiderInfo(Path.Combine(a.FullName, "Contents/MacOS/rider"), false))
-                  .ToList());
+                    .Select(a => new RiderInfo(Path.Combine(a.FullName, "Contents/MacOS/rider"), false))
+                    .ToList());
             }
 
             // /Users/user/Library/Application Support/JetBrains/Toolbox/apps/Rider/ch-1/181.3870.267/Rider EAP.app
             // should be combined with "Contents/MacOS/rider"
-            var toolboxRiderRootPath = GetToolboxBaseDir();
+            string toolboxRiderRootPath = GetToolboxBaseDir();
             var paths = CollectPathsFromToolbox(toolboxRiderRootPath, "", "Rider*.app", true)
-              .Select(a => new RiderInfo(Path.Combine(a, "Contents/MacOS/rider"), true));
+                .Select(a => new RiderInfo(Path.Combine(a, "Contents/MacOS/rider"), true));
             installInfos.AddRange(paths);
 
             return installInfos.ToArray();
         }
 
+        [SupportedOSPlatform("windows")]
         private static RiderInfo[] CollectRiderInfosWindows()
         {
             var installInfos = new List<RiderInfo>();
@@ -134,7 +137,7 @@ namespace GodotTools.Ides.Rider
         {
             if (OS.IsWindows)
             {
-                var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
                 return GetToolboxRiderRootPath(localAppData);
             }
 
@@ -213,9 +216,10 @@ namespace GodotTools.Ides.Rider
                 return "../../build.txt";
             if (OS.IsMacOS)
                 return "Contents/Resources/build.txt";
-            throw new Exception("Unknown OS.");
+            throw new InvalidOperationException("Unknown OS.");
         }
 
+        [SupportedOSPlatform("windows")]
         private static void CollectPathsFromRegistry(string registryKey, List<string> installPaths)
         {
             using (var key = Registry.CurrentUser.OpenSubKey(registryKey))
@@ -228,6 +232,7 @@ namespace GodotTools.Ides.Rider
             }
         }
 
+        [SupportedOSPlatform("windows")]
         private static void CollectPathsFromRegistry(List<string> installPaths, RegistryKey key)
         {
             if (key == null) return;
@@ -323,7 +328,7 @@ namespace GodotTools.Ides.Rider
         {
             public string install_location;
 
-            [CanBeNull]
+            [return: MaybeNull]
             public static string GetInstallLocationFromJson(string json)
             {
                 try
@@ -377,7 +382,7 @@ namespace GodotTools.Ides.Rider
             public string version;
             public string versionSuffix;
 
-            [CanBeNull]
+            [return: MaybeNull]
             internal static ProductInfo GetProductInfo(string json)
             {
                 try
@@ -401,7 +406,7 @@ namespace GodotTools.Ides.Rider
             // ReSharper disable once InconsistentNaming
             public ActiveApplication active_application;
 
-            [CanBeNull]
+            [return: MaybeNull]
             public static string GetLatestBuildFromJson(string json)
             {
                 try

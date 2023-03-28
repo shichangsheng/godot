@@ -1,8 +1,8 @@
 diff --git a/thirdparty/vulkan/vk_mem_alloc.h b/thirdparty/vulkan/vk_mem_alloc.h
-index 8a42699e7f..510fa4d3ef 100644
+index 44affc5ca4..d96f2dacc0 100644
 --- a/thirdparty/vulkan/vk_mem_alloc.h
 +++ b/thirdparty/vulkan/vk_mem_alloc.h
-@@ -1771,7 +1771,11 @@ available through VmaAllocatorCreateInfo::pRecordSettings.
+@@ -127,7 +127,11 @@ extern "C" {
  #endif
  
  #ifndef VULKAN_H_
@@ -14,4 +14,4 @@ index 8a42699e7f..510fa4d3ef 100644
 +    #endif
  #endif
  
- #if VMA_RECORDING_ENABLED
+ // Define this macro to declare maximum supported Vulkan version in format AAABBBCCC,

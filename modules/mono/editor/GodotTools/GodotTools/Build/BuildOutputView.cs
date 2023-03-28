@@ -1,17 +1,16 @@
 using Godot;
 using System;
-using Godot.Collections;
+using System.Diagnostics.CodeAnalysis;
 using GodotTools.Internals;
-using JetBrains.Annotations;
 using File = GodotTools.Utils.File;
 using Path = System.IO.Path;
 
 namespace GodotTools.Build
 {
-    public class BuildOutputView : VBoxContainer, ISerializationListener
+    public partial class BuildOutputView : VBoxContainer, ISerializationListener
     {
         [Serializable]
-        private class BuildIssue : RefCounted // TODO Remove RefCounted once we have proper serialization
+        private partial class BuildIssue : RefCounted // TODO Remove RefCounted once we have proper serialization
         {
             public bool Warning { get; set; }
             public string File { get; set; }
@@ -22,15 +21,8 @@ namespace GodotTools.Build
             public string ProjectFile { get; set; }
         }
 
-        private readonly Array<BuildIssue> issues = new Array<BuildIssue>(); // TODO Use List once we have proper serialization
-        private ItemList issuesList;
-        private TextEdit buildLog;
-        private PopupMenu issuesListContextMenu;
-
-        private readonly object pendingBuildLogTextLock = new object();
-        [NotNull] private string pendingBuildLogText = string.Empty;
-
-        [Signal] public event Action BuildStateChanged;
+        [Signal]
+        public delegate void BuildStateChangedEventHandler();
 
         public bool HasBuildExited { get; private set; } = false;
 
@@ -60,80 +52,80 @@ namespace GodotTools.Build
             }
         }
 
-        private BuildInfo BuildInfo { get; set; }
-
         public bool LogVisible
         {
-            set => buildLog.Visible = value;
+            set => _buildLog.Visible = value;
         }
+
+        // TODO Use List once we have proper serialization.
+        private Godot.Collections.Array<BuildIssue> _issues = new();
+        private ItemList _issuesList;
+        private PopupMenu _issuesListContextMenu;
+        private TextEdit _buildLog;
+        private BuildInfo _buildInfo;
+
+        private readonly object _pendingBuildLogTextLock = new object();
+        [NotNull] private string _pendingBuildLogText = string.Empty;
 
         private void LoadIssuesFromFile(string csvFile)
         {
-            using (var file = new Godot.File())
+            using var file = FileAccess.Open(csvFile, FileAccess.ModeFlags.Read);
+
+            if (file == null)
+                return;
+
+            while (!file.EofReached())
             {
-                try
+                string[] csvColumns = file.GetCsvLine();
+
+                if (csvColumns.Length == 1 && string.IsNullOrEmpty(csvColumns[0]))
+                    return;
+
+                if (csvColumns.Length != 7)
                 {
-                    Error openError = file.Open(csvFile, Godot.File.ModeFlags.Read);
-
-                    if (openError != Error.Ok)
-                        return;
-
-                    while (!file.EofReached())
-                    {
-                        string[] csvColumns = file.GetCsvLine();
-
-                        if (csvColumns.Length == 1 && string.IsNullOrEmpty(csvColumns[0]))
-                            return;
-
-                        if (csvColumns.Length != 7)
-                        {
-                            GD.PushError($"Expected 7 columns, got {csvColumns.Length}");
-                            continue;
-                        }
-
-                        var issue = new BuildIssue
-                        {
-                            Warning = csvColumns[0] == "warning",
-                            File = csvColumns[1],
-                            Line = int.Parse(csvColumns[2]),
-                            Column = int.Parse(csvColumns[3]),
-                            Code = csvColumns[4],
-                            Message = csvColumns[5],
-                            ProjectFile = csvColumns[6]
-                        };
-
-                        if (issue.Warning)
-                            WarningCount += 1;
-                        else
-                            ErrorCount += 1;
-
-                        issues.Add(issue);
-                    }
+                    GD.PushError($"Expected 7 columns, got {csvColumns.Length}");
+                    continue;
                 }
-                finally
+
+                var issue = new BuildIssue
                 {
-                    file.Close(); // Disposing it is not enough. We need to call Close()
-                }
+                    Warning = csvColumns[0] == "warning",
+                    File = csvColumns[1],
+                    Line = int.Parse(csvColumns[2]),
+                    Column = int.Parse(csvColumns[3]),
+                    Code = csvColumns[4],
+                    Message = csvColumns[5],
+                    ProjectFile = csvColumns[6]
+                };
+
+                if (issue.Warning)
+                    WarningCount += 1;
+                else
+                    ErrorCount += 1;
+
+                _issues.Add(issue);
             }
         }
 
-        private void IssueActivated(int idx)
+        private void IssueActivated(long idx)
         {
-            if (idx < 0 || idx >= issuesList.GetItemCount())
-                throw new IndexOutOfRangeException("Item list index out of range");
+            if (idx < 0 || idx >= _issuesList.ItemCount)
+                throw new ArgumentOutOfRangeException(nameof(idx), "Item list index out of range.");
 
             // Get correct issue idx from issue list
-            int issueIndex = (int)(long)issuesList.GetItemMetadata(idx);
+            int issueIndex = (int)_issuesList.GetItemMetadata((int)idx);
 
-            if (issueIndex < 0 || issueIndex >= issues.Count)
-                throw new IndexOutOfRangeException("Issue index out of range");
+            if (issueIndex < 0 || issueIndex >= _issues.Count)
+                throw new InvalidOperationException("Issue index out of range.");
 
-            BuildIssue issue = issues[issueIndex];
+            BuildIssue issue = _issues[issueIndex];
 
             if (string.IsNullOrEmpty(issue.ProjectFile) && string.IsNullOrEmpty(issue.File))
                 return;
 
-            string projectDir = issue.ProjectFile.Length > 0 ? issue.ProjectFile.GetBaseDir() : BuildInfo.Solution.GetBaseDir();
+            string projectDir = !string.IsNullOrEmpty(issue.ProjectFile) ?
+                issue.ProjectFile.GetBaseDir() :
+                _buildInfo.Solution.GetBaseDir();
 
             string file = Path.Combine(projectDir.SimplifyGodotPath(), issue.File.SimplifyGodotPath());
 
@@ -153,14 +145,14 @@ namespace GodotTools.Build
 
         public void UpdateIssuesList()
         {
-            issuesList.Clear();
+            _issuesList.Clear();
 
             using (var warningIcon = GetThemeIcon("Warning", "EditorIcons"))
             using (var errorIcon = GetThemeIcon("Error", "EditorIcons"))
             {
-                for (int i = 0; i < issues.Count; i++)
+                for (int i = 0; i < _issues.Count; i++)
                 {
-                    BuildIssue issue = issues[i];
+                    BuildIssue issue = _issues[i];
 
                     if (!(issue.Warning ? WarningsVisible : ErrorsVisible))
                         continue;
@@ -191,11 +183,11 @@ namespace GodotTools.Build
 
                     int lineBreakIdx = text.IndexOf("\n", StringComparison.Ordinal);
                     string itemText = lineBreakIdx == -1 ? text : text.Substring(0, lineBreakIdx);
-                    issuesList.AddItem(itemText, issue.Warning ? warningIcon : errorIcon);
+                    _issuesList.AddItem(itemText, issue.Warning ? warningIcon : errorIcon);
 
-                    int index = issuesList.GetItemCount() - 1;
-                    issuesList.SetItemTooltip(index, tooltip);
-                    issuesList.SetItemMetadata(index, i);
+                    int index = _issuesList.ItemCount - 1;
+                    _issuesList.SetItemTooltip(index, tooltip);
+                    _issuesList.SetItemMetadata(index, i);
                 }
             }
         }
@@ -205,12 +197,12 @@ namespace GodotTools.Build
             HasBuildExited = true;
             BuildResult = Build.BuildResult.Error;
 
-            issuesList.Clear();
+            _issuesList.Clear();
 
-            var issue = new BuildIssue {Message = cause, Warning = false};
+            var issue = new BuildIssue { Message = cause, Warning = false };
 
             ErrorCount += 1;
-            issues.Add(issue);
+            _issues.Add(issue);
 
             UpdateIssuesList();
 
@@ -219,13 +211,13 @@ namespace GodotTools.Build
 
         private void BuildStarted(BuildInfo buildInfo)
         {
-            BuildInfo = buildInfo;
+            _buildInfo = buildInfo;
             HasBuildExited = false;
 
-            issues.Clear();
+            _issues.Clear();
             WarningCount = 0;
             ErrorCount = 0;
-            buildLog.Text = string.Empty;
+            _buildLog.Text = string.Empty;
 
             UpdateIssuesList();
 
@@ -237,7 +229,7 @@ namespace GodotTools.Build
             HasBuildExited = true;
             BuildResult = result;
 
-            LoadIssuesFromFile(Path.Combine(BuildInfo.LogsDirPath, BuildManager.MsBuildIssuesFileName));
+            LoadIssuesFromFile(Path.Combine(_buildInfo.LogsDirPath, BuildManager.MsBuildIssuesFileName));
 
             UpdateIssuesList();
 
@@ -246,52 +238,52 @@ namespace GodotTools.Build
 
         private void UpdateBuildLogText()
         {
-            lock (pendingBuildLogTextLock)
+            lock (_pendingBuildLogTextLock)
             {
-                buildLog.Text += pendingBuildLogText;
-                pendingBuildLogText = string.Empty;
+                _buildLog.Text += _pendingBuildLogText;
+                _pendingBuildLogText = string.Empty;
                 ScrollToLastNonEmptyLogLine();
             }
         }
 
         private void StdOutputReceived(string text)
         {
-            lock (pendingBuildLogTextLock)
+            lock (_pendingBuildLogTextLock)
             {
-                if (pendingBuildLogText.Length == 0)
+                if (_pendingBuildLogText.Length == 0)
                     CallDeferred(nameof(UpdateBuildLogText));
-                pendingBuildLogText += text + "\n";
+                _pendingBuildLogText += text + "\n";
             }
         }
 
         private void StdErrorReceived(string text)
         {
-            lock (pendingBuildLogTextLock)
+            lock (_pendingBuildLogTextLock)
             {
-                if (pendingBuildLogText.Length == 0)
+                if (_pendingBuildLogText.Length == 0)
                     CallDeferred(nameof(UpdateBuildLogText));
-                pendingBuildLogText += text + "\n";
+                _pendingBuildLogText += text + "\n";
             }
         }
 
         private void ScrollToLastNonEmptyLogLine()
         {
             int line;
-            for (line = buildLog.GetLineCount(); line > 0; line--)
+            for (line = _buildLog.GetLineCount(); line > 0; line--)
             {
-                string lineText = buildLog.GetLine(line);
+                string lineText = _buildLog.GetLine(line);
 
                 if (!string.IsNullOrEmpty(lineText) || !string.IsNullOrEmpty(lineText?.Trim()))
                     break;
             }
 
-            buildLog.SetCaretLine(line);
+            _buildLog.SetCaretLine(line);
         }
 
         public void RestartBuild()
         {
             if (!HasBuildExited)
-                throw new InvalidOperationException("Build already started");
+                throw new InvalidOperationException("Build already started.");
 
             BuildManager.RestartBuild(this);
         }
@@ -299,7 +291,7 @@ namespace GodotTools.Build
         public void StopBuild()
         {
             if (!HasBuildExited)
-                throw new InvalidOperationException("Build is not in progress");
+                throw new InvalidOperationException("Build is not in progress.");
 
             BuildManager.StopBuild(this);
         }
@@ -309,7 +301,7 @@ namespace GodotTools.Build
             Copy
         }
 
-        private void IssuesListContextOptionPressed(int id)
+        private void IssuesListContextOptionPressed(long id)
         {
             switch ((IssuesContextMenuOption)id)
             {
@@ -318,11 +310,11 @@ namespace GodotTools.Build
                     // We don't allow multi-selection but just in case that changes later...
                     string text = null;
 
-                    foreach (int issueIndex in issuesList.GetSelectedItems())
+                    foreach (int issueIndex in _issuesList.GetSelectedItems())
                     {
                         if (text != null)
                             text += "\n";
-                        text += issuesList.GetItemText(issueIndex);
+                        text += _issuesList.GetItemText(issueIndex);
                     }
 
                     if (text != null)
@@ -334,24 +326,29 @@ namespace GodotTools.Build
             }
         }
 
-        private void IssuesListRmbSelected(int index, Vector2 atPosition)
+        private void IssuesListClicked(long index, Vector2 atPosition, long mouseButtonIndex)
         {
+            if (mouseButtonIndex != (long)MouseButton.Right)
+            {
+                return;
+            }
+
             _ = index; // Unused
 
-            issuesListContextMenu.Clear();
-            issuesListContextMenu.Size = new Vector2i(1, 1);
+            _issuesListContextMenu.Clear();
+            _issuesListContextMenu.Size = new Vector2I(1, 1);
 
-            if (issuesList.IsAnythingSelected())
+            if (_issuesList.IsAnythingSelected())
             {
                 // Add menu entries for the selected item
-                issuesListContextMenu.AddIconItem(GetThemeIcon("ActionCopy", "EditorIcons"),
+                _issuesListContextMenu.AddIconItem(GetThemeIcon("ActionCopy", "EditorIcons"),
                     label: "Copy Error".TTR(), (int)IssuesContextMenuOption.Copy);
             }
 
-            if (issuesListContextMenu.GetItemCount() > 0)
+            if (_issuesListContextMenu.ItemCount > 0)
             {
-                issuesListContextMenu.Position = (Vector2i)(issuesList.RectGlobalPosition + atPosition);
-                issuesListContextMenu.Popup();
+                _issuesListContextMenu.Position = (Vector2I)(_issuesList.GlobalPosition + atPosition);
+                _issuesListContextMenu.Popup();
             }
         }
 
@@ -359,36 +356,36 @@ namespace GodotTools.Build
         {
             base._Ready();
 
-            SizeFlagsVertical = (int)SizeFlags.ExpandFill;
+            SizeFlagsVertical = SizeFlags.ExpandFill;
 
             var hsc = new HSplitContainer
             {
-                SizeFlagsHorizontal = (int)SizeFlags.ExpandFill,
-                SizeFlagsVertical = (int)SizeFlags.ExpandFill
+                SizeFlagsHorizontal = SizeFlags.ExpandFill,
+                SizeFlagsVertical = SizeFlags.ExpandFill
             };
             AddChild(hsc);
 
-            issuesList = new ItemList
+            _issuesList = new ItemList
             {
-                SizeFlagsVertical = (int)SizeFlags.ExpandFill,
-                SizeFlagsHorizontal = (int)SizeFlags.ExpandFill // Avoid being squashed by the build log
+                SizeFlagsVertical = SizeFlags.ExpandFill,
+                SizeFlagsHorizontal = SizeFlags.ExpandFill // Avoid being squashed by the build log
             };
-            issuesList.ItemActivated += IssueActivated;
-            issuesList.AllowRmbSelect = true;
-            issuesList.ItemRmbSelected += IssuesListRmbSelected;
-            hsc.AddChild(issuesList);
+            _issuesList.ItemActivated += IssueActivated;
+            _issuesList.AllowRmbSelect = true;
+            _issuesList.ItemClicked += IssuesListClicked;
+            hsc.AddChild(_issuesList);
 
-            issuesListContextMenu = new PopupMenu();
-            issuesListContextMenu.IdPressed += IssuesListContextOptionPressed;
-            issuesList.AddChild(issuesListContextMenu);
+            _issuesListContextMenu = new PopupMenu();
+            _issuesListContextMenu.IdPressed += IssuesListContextOptionPressed;
+            _issuesList.AddChild(_issuesListContextMenu);
 
-            buildLog = new TextEdit
+            _buildLog = new TextEdit
             {
                 Editable = false,
-                SizeFlagsVertical = (int)SizeFlags.ExpandFill,
-                SizeFlagsHorizontal = (int)SizeFlags.ExpandFill // Avoid being squashed by the issues list
+                SizeFlagsVertical = SizeFlags.ExpandFill,
+                SizeFlagsHorizontal = SizeFlags.ExpandFill // Avoid being squashed by the issues list
             };
-            hsc.AddChild(buildLog);
+            hsc.AddChild(_buildLog);
 
             AddBuildEventListeners();
         }
@@ -407,6 +404,16 @@ namespace GodotTools.Build
         {
             // In case it didn't update yet. We don't want to have to serialize any pending output.
             UpdateBuildLogText();
+
+            // NOTE:
+            // Currently, GodotTools is loaded in its own load context. This load context is not reloaded, but the script still are.
+            // Until that changes, we need workarounds like this one because events keep strong references to disposed objects.
+            BuildManager.BuildLaunchFailed -= BuildLaunchFailed;
+            BuildManager.BuildStarted -= BuildStarted;
+            BuildManager.BuildFinished -= BuildFinished;
+            // StdOutput/Error can be received from different threads, so we need to use CallDeferred
+            BuildManager.StdOutputReceived -= StdOutputReceived;
+            BuildManager.StdErrorReceived -= StdErrorReceived;
         }
 
         public void OnAfterDeserialize()

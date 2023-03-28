@@ -1,32 +1,32 @@
-/*************************************************************************/
-/*  main_timer_sync.cpp                                                  */
-/*************************************************************************/
-/*                       This file is part of:                           */
-/*                           GODOT ENGINE                                */
-/*                      https://godotengine.org                          */
-/*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
-/*                                                                       */
-/* Permission is hereby granted, free of charge, to any person obtaining */
-/* a copy of this software and associated documentation files (the       */
-/* "Software"), to deal in the Software without restriction, including   */
-/* without limitation the rights to use, copy, modify, merge, publish,   */
-/* distribute, sublicense, and/or sell copies of the Software, and to    */
-/* permit persons to whom the Software is furnished to do so, subject to */
-/* the following conditions:                                             */
-/*                                                                       */
-/* The above copyright notice and this permission notice shall be        */
-/* included in all copies or substantial portions of the Software.       */
-/*                                                                       */
-/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,       */
-/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF    */
-/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.*/
-/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY  */
-/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,  */
-/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE     */
-/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
-/*************************************************************************/
+/**************************************************************************/
+/*  main_timer_sync.cpp                                                   */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #include "main_timer_sync.h"
 
@@ -57,7 +57,7 @@ int MainTimerSync::get_average_physics_steps(double &p_min, double &p_max) {
 		const double typical_lower = typical_physics_steps[i];
 		const double current_min = typical_lower / (i + 1);
 		if (current_min > p_max) {
-			return i; // bail out of further restrictions would void the interval
+			return i; // bail out if further restrictions would void the interval
 		} else if (current_min > p_min) {
 			p_min = current_min;
 		}
@@ -105,6 +105,12 @@ MainFrameTime MainTimerSync::advance_core(double p_physics_step, int p_physics_t
 		}
 	}
 
+#ifdef DEBUG_ENABLED
+	if (max_typical_steps < 0) {
+		WARN_PRINT_ONCE("`max_typical_steps` is negative. This could hint at an engine bug or system timer misconfiguration.");
+	}
+#endif
+
 	// try to keep it consistent with previous iterations
 	if (ret.physics_steps < min_typical_steps) {
 		const int max_possible_steps = floor((time_accum)*p_physics_ticks_per_second + get_physics_jitter_fix());
@@ -122,6 +128,10 @@ MainFrameTime MainTimerSync::advance_core(double p_physics_step, int p_physics_t
 		} else {
 			ret.physics_steps = max_typical_steps;
 		}
+	}
+
+	if (ret.physics_steps < 0) {
+		ret.physics_steps = 0;
 	}
 
 	time_accum -= ret.physics_steps * p_physics_step;
@@ -151,6 +161,9 @@ MainFrameTime MainTimerSync::advance_checked(double p_physics_step, int p_physic
 		p_process_step = 1.0 / fixed_fps;
 	}
 
+	float min_output_step = p_process_step / 8;
+	min_output_step = MAX(min_output_step, 1E-6);
+
 	// compensate for last deficit
 	p_process_step += time_deficit;
 
@@ -177,8 +190,36 @@ MainFrameTime MainTimerSync::advance_checked(double p_physics_step, int p_physic
 	// last clamping: make sure time_accum is between 0 and p_physics_step for consistency between physics and process
 	ret.clamp_process_step(process_minus_accum, process_minus_accum + p_physics_step);
 
+	// all the operations above may have turned ret.p_process_step negative or zero, keep a minimal value
+	if (ret.process_step < min_output_step) {
+		ret.process_step = min_output_step;
+	}
+
 	// restore time_accum
 	time_accum = ret.process_step - process_minus_accum;
+
+	// forcing ret.process_step to be positive may trigger a violation of the
+	// promise that time_accum is between 0 and p_physics_step
+#ifdef DEBUG_ENABLED
+	if (time_accum < -1E-7) {
+		WARN_PRINT_ONCE("Intermediate value of `time_accum` is negative. This could hint at an engine bug or system timer misconfiguration.");
+	}
+#endif
+
+	if (time_accum > p_physics_step) {
+		const int extra_physics_steps = floor(time_accum * p_physics_ticks_per_second);
+		time_accum -= extra_physics_steps * p_physics_step;
+		ret.physics_steps += extra_physics_steps;
+	}
+
+#ifdef DEBUG_ENABLED
+	if (time_accum < -1E-7) {
+		WARN_PRINT_ONCE("Final value of `time_accum` is negative. It should always be between 0 and `p_physics_step`. This hints at an engine bug.");
+	}
+	if (time_accum > p_physics_step + 1E-7) {
+		WARN_PRINT_ONCE("Final value of `time_accum` is larger than `p_physics_step`. It should always be between 0 and `p_physics_step`. This hints at an engine bug.");
+	}
+#endif
 
 	// track deficit
 	time_deficit = p_process_step - ret.process_step;

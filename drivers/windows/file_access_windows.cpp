@@ -1,32 +1,32 @@
-/*************************************************************************/
-/*  file_access_windows.cpp                                              */
-/*************************************************************************/
-/*                       This file is part of:                           */
-/*                           GODOT ENGINE                                */
-/*                      https://godotengine.org                          */
-/*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
-/*                                                                       */
-/* Permission is hereby granted, free of charge, to any person obtaining */
-/* a copy of this software and associated documentation files (the       */
-/* "Software"), to deal in the Software without restriction, including   */
-/* without limitation the rights to use, copy, modify, merge, publish,   */
-/* distribute, sublicense, and/or sell copies of the Software, and to    */
-/* permit persons to whom the Software is furnished to do so, subject to */
-/* the following conditions:                                             */
-/*                                                                       */
-/* The above copyright notice and this permission notice shall be        */
-/* included in all copies or substantial portions of the Software.       */
-/*                                                                       */
-/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,       */
-/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF    */
-/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.*/
-/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY  */
-/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,  */
-/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE     */
-/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
-/*************************************************************************/
+/**************************************************************************/
+/*  file_access_windows.cpp                                               */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #ifdef WINDOWS_ENABLED
 
@@ -34,9 +34,9 @@
 
 #include "core/os/os.h"
 #include "core/string/print_string.h"
-
 #include <share.h> // _SH_DENYNO
 #include <shlwapi.h>
+#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
 #include <errno.h>
@@ -57,12 +57,31 @@ void FileAccessWindows::check_errors() const {
 	}
 }
 
-Error FileAccessWindows::_open(const String &p_path, int p_mode_flags) {
+bool FileAccessWindows::is_path_invalid(const String &p_path) {
+	// Check for invalid operating system file.
+	String fname = p_path;
+	int dot = fname.find(".");
+	if (dot != -1) {
+		fname = fname.substr(0, dot);
+	}
+	fname = fname.to_lower();
+	return invalid_files.has(fname);
+}
+
+Error FileAccessWindows::open_internal(const String &p_path, int p_mode_flags) {
+	if (is_path_invalid(p_path)) {
+#ifdef DEBUG_ENABLED
+		if (p_mode_flags != READ) {
+			WARN_PRINT("The path :" + p_path + " is a reserved Windows system pipe, so it can't be used for creating files.");
+		}
+#endif
+		return ERR_INVALID_PARAMETER;
+	}
+
+	_close();
+
 	path_src = p_path;
 	path = fix_path(p_path);
-	if (f) {
-		close();
-	}
 
 	const WCHAR *mode_string;
 
@@ -86,7 +105,7 @@ Error FileAccessWindows::_open(const String &p_path, int p_mode_flags) {
 		if (!S_ISREG(st.st_mode)) {
 			return ERR_FILE_CANT_OPEN;
 		}
-	};
+	}
 
 #ifdef TOOLS_ENABLED
 	// Windows is case insensitive, but all other platforms are sensitive to it
@@ -95,26 +114,32 @@ Error FileAccessWindows::_open(const String &p_path, int p_mode_flags) {
 	// platforms).
 	if (p_mode_flags == READ) {
 		WIN32_FIND_DATAW d;
-		HANDLE f = FindFirstFileW((LPCWSTR)(path.utf16().get_data()), &d);
-		if (f != INVALID_HANDLE_VALUE) {
+		HANDLE fnd = FindFirstFileW((LPCWSTR)(path.utf16().get_data()), &d);
+		if (fnd != INVALID_HANDLE_VALUE) {
 			String fname = String::utf16((const char16_t *)(d.cFileName));
-			if (fname != String()) {
+			if (!fname.is_empty()) {
 				String base_file = path.get_file();
 				if (base_file != fname && base_file.findn(fname) == 0) {
 					WARN_PRINT("Case mismatch opening requested file '" + base_file + "', stored as '" + fname + "' in the filesystem. This file will not open when exported to other case-sensitive platforms.");
 				}
 			}
-			FindClose(f);
+			FindClose(fnd);
 		}
 	}
 #endif
 
 	if (is_backup_save_enabled() && p_mode_flags == WRITE) {
 		save_path = path;
-		path = path + ".tmp";
+		// Create a temporary file in the same directory as the target file.
+		WCHAR tmpFileName[MAX_PATH];
+		if (GetTempFileNameW((LPCWSTR)(path.get_base_dir().utf16().get_data()), (LPCWSTR)(path.get_file().utf16().get_data()), 0, tmpFileName) == 0) {
+			last_error = ERR_FILE_CANT_OPEN;
+			return last_error;
+		}
+		path = tmpFileName;
 	}
 
-	f = _wfsopen((LPCWSTR)(path.utf16().get_data()), mode_string, _SH_DENYNO);
+	f = _wfsopen((LPCWSTR)(path.utf16().get_data()), mode_string, is_backup_save_enabled() ? _SH_SECURE : _SH_DENYNO);
 
 	if (f == nullptr) {
 		switch (errno) {
@@ -133,7 +158,7 @@ Error FileAccessWindows::_open(const String &p_path, int p_mode_flags) {
 	}
 }
 
-void FileAccessWindows::close() {
+void FileAccessWindows::_close() {
 	if (!f) {
 		return;
 	}
@@ -141,7 +166,7 @@ void FileAccessWindows::close() {
 	fclose(f);
 	f = nullptr;
 
-	if (save_path != "") {
+	if (!save_path.is_empty()) {
 		bool rename_error = true;
 		int attempts = 4;
 		while (rename_error && attempts) {
@@ -159,10 +184,10 @@ void FileAccessWindows::close() {
 			if (!PathFileExistsW((LPCWSTR)(save_path.utf16().get_data()))) {
 #endif
 				// Creating new file
-				rename_error = _wrename((LPCWSTR)((save_path + ".tmp").utf16().get_data()), (LPCWSTR)(save_path.utf16().get_data())) != 0;
+				rename_error = _wrename((LPCWSTR)(path.utf16().get_data()), (LPCWSTR)(save_path.utf16().get_data())) != 0;
 			} else {
 				// Atomic replace for existing file
-				rename_error = !ReplaceFileW((LPCWSTR)(save_path.utf16().get_data()), (LPCWSTR)((save_path + ".tmp").utf16().get_data()), nullptr, 2 | 4, nullptr, nullptr);
+				rename_error = !ReplaceFileW((LPCWSTR)(save_path.utf16().get_data()), (LPCWSTR)(path.utf16().get_data()), nullptr, 2 | 4, nullptr, nullptr);
 			}
 			if (rename_error) {
 				attempts--;
@@ -268,7 +293,7 @@ uint64_t FileAccessWindows::get_buffer(uint8_t *p_dst, uint64_t p_length) const 
 	uint64_t read = fread(p_dst, 1, p_length, f);
 	check_errors();
 	return read;
-};
+}
 
 Error FileAccessWindows::get_error() const {
 	return last_error;
@@ -313,6 +338,10 @@ void FileAccessWindows::store_buffer(const uint8_t *p_src, uint64_t p_length) {
 }
 
 bool FileAccessWindows::file_exists(const String &p_name) {
+	if (is_path_invalid(p_name)) {
+		return false;
+	}
+
 	String filename = fix_path(p_name);
 	FILE *g = _wfsopen((LPCWSTR)(filename.utf16().get_data()), L"rb", _SH_DENYNO);
 	if (g == nullptr) {
@@ -324,9 +353,14 @@ bool FileAccessWindows::file_exists(const String &p_name) {
 }
 
 uint64_t FileAccessWindows::_get_modified_time(const String &p_file) {
+	if (is_path_invalid(p_file)) {
+		return 0;
+	}
+
 	String file = fix_path(p_file);
-	if (file.ends_with("/") && file != "/")
+	if (file.ends_with("/") && file != "/") {
 		file = file.substr(0, file.length() - 1);
+	}
 
 	struct _stat st;
 	int rv = _wstat((LPCWSTR)(file.utf16().get_data()), &st);
@@ -334,7 +368,8 @@ uint64_t FileAccessWindows::_get_modified_time(const String &p_file) {
 	if (rv == 0) {
 		return st.st_mtime;
 	} else {
-		ERR_FAIL_V_MSG(0, "Failed to get modified time for: " + file + ".");
+		print_verbose("Failed to get modified time for: " + p_file + "");
+		return 0;
 	}
 }
 
@@ -346,8 +381,29 @@ Error FileAccessWindows::_set_unix_permissions(const String &p_file, uint32_t p_
 	return ERR_UNAVAILABLE;
 }
 
+void FileAccessWindows::close() {
+	_close();
+}
+
 FileAccessWindows::~FileAccessWindows() {
-	close();
+	_close();
+}
+
+HashSet<String> FileAccessWindows::invalid_files;
+
+void FileAccessWindows::initialize() {
+	static const char *reserved_files[]{
+		"con", "prn", "aux", "nul", "com0", "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8", "com9", "lpt0", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9", nullptr
+	};
+	int reserved_file_index = 0;
+	while (reserved_files[reserved_file_index] != nullptr) {
+		invalid_files.insert(reserved_files[reserved_file_index]);
+		reserved_file_index++;
+	}
+}
+
+void FileAccessWindows::finalize() {
+	invalid_files.clear();
 }
 
 #endif // WINDOWS_ENABLED

@@ -7,6 +7,8 @@ namespace GodotTools.Core
 {
     public static class StringExtensions
     {
+        private static readonly string _driveRoot = Path.GetPathRoot(Environment.CurrentDirectory);
+
         public static string RelativeToPath(this string path, string dir)
         {
             // Make sure the directory ends with a path separator
@@ -32,7 +34,7 @@ namespace GodotTools.Core
             path = path.Replace('\\', '/');
             path = path[path.Length - 1] == '/' ? path.Substring(0, path.Length - 1) : path;
 
-            string[] parts = path.Split(new[] {'/'}, StringSplitOptions.RemoveEmptyEntries);
+            string[] parts = path.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
 
             path = string.Join(Path.DirectorySeparatorChar.ToString(), parts).Trim();
 
@@ -49,18 +51,16 @@ namespace GodotTools.Core
             return Path.DirectorySeparatorChar + path;
         }
 
-        private static readonly string DriveRoot = Path.GetPathRoot(Environment.CurrentDirectory);
-
         public static bool IsAbsolutePath(this string path)
         {
             return path.StartsWith("/", StringComparison.Ordinal) ||
                    path.StartsWith("\\", StringComparison.Ordinal) ||
-                   path.StartsWith(DriveRoot, StringComparison.Ordinal);
+                   path.StartsWith(_driveRoot, StringComparison.Ordinal);
         }
 
         public static string ToSafeDirName(this string dirName, bool allowDirSeparator = false)
         {
-            var invalidChars = new List<string> {":", "*", "?", "\"", "<", ">", "|"};
+            var invalidChars = new List<string> { ":", "*", "?", "\"", "<", ">", "|" };
 
             if (allowDirSeparator)
             {
